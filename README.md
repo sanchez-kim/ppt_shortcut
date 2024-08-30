@@ -65,4 +65,4 @@
 
 ## Contact
 
-프로젝트 관리자 - [@Sanchez56480](https://twitter.com/sanchezkimkr)
+프로젝트 관리자 - [@sanchezkimkr](https://x.com/sanchezkimkr)
