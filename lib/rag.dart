@@ -1,72 +1,168 @@
-import 'dart:math';
+import 'package:langchain/langchain.dart';
+import 'package:langchain_ollama/langchain_ollama.dart';
+import 'package:uuid/uuid.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:path_provider/path_provider.dart';
+import 'shortcuts.dart';
 
-// RAG (Retrieval-Augmented Generation) 시스템을 구현한 클래스
 class RAGSystem {
-  final List<Shortcut> shortcuts;
-  final double similarityThreshold = 0.2;
+  late final Embeddings embeddings;
+  final List<
+      ({
+        String id,
+        List<double> vector,
+        Map<String, dynamic> metadata,
+        String content
+      })> vectorStore = [];
+  final Uuid _uuid = const Uuid();
+  static const String _fileName = 'vector_store.json';
 
-  RAGSystem(this.shortcuts);
+  RAGSystem._();
 
-  // 주어진 쿼리에 대해 관련된 단축키를 검색하는 메서드
-  List<Shortcut> search(String query) {
-    // 쿼리를 소문자로 변환
-    query = query.toLowerCase();
-
-    // 모든 단축키에 대해 유사도를 계산
-    List<Shortcut> results = shortcuts.map((shortcut) {
-      double similarity =
-          _cosineSimilarity(query, shortcut.description.toLowerCase());
-      return Shortcut(shortcut.keys, shortcut.description, similarity);
-    }).toList();
-
-    results = results
-        .where((shortcut) => shortcut.similarity >= similarityThreshold)
-        .toList();
-
-    // 유사도에 따라 결과를 정렬 (내림차순)
-    results.sort((a, b) => b.similarity.compareTo(a.similarity));
-
-    // 상위 5개 결과만 반환
-    return results.take(5).toList();
+  static Future<RAGSystem> create(List<Shortcut> shortcuts) async {
+    final instance = RAGSystem._();
+    await instance._initialize(shortcuts);
+    return instance;
   }
 
-  // 코사인 유사도를 계산하는 메서드
-  double _cosineSimilarity(String s1, String s2) {
-    // 각 문자열을 단어 집합으로 변환
-    Set<String> words1 = s1.split(' ').toSet();
-    Set<String> words2 = s2.split(' ').toSet();
+  Future<void> _initialize(List<Shortcut> shortcuts) async {
+    try {
+      embeddings = OllamaEmbeddings(
+        model: 'nomic-embed-text',
+        baseUrl: 'http://127.0.0.1:11434/api',
+      );
 
-    // 두 집합의 합집합 생성
-    Set<String> union = words1.union(words2);
-
-    int dotProduct = 0;
-    int magnitude1 = 0;
-    int magnitude2 = 0;
-
-    // 각 단어에 대해 벡터 연산 수행
-    for (String word in union) {
-      int count1 = words1.contains(word) ? 1 : 0;
-      int count2 = words2.contains(word) ? 1 : 0;
-      dotProduct += count1 * count2;
-      magnitude1 += count1 * count1;
-      magnitude2 += count2 * count2;
+      final file = await _getFile();
+      if (await file.exists()) {
+        print('Loading existing vector store...');
+        await _loadVectorStore(file);
+      } else {
+        print('Creating new vector store...');
+        await _createVectorStore(shortcuts);
+        await _saveVectorStore(file);
+      }
+    } catch (e, stackTrace) {
+      print('Error initializing RAGSystem: $e');
+      print('Stack trace: $stackTrace');
+      throw Exception('Failed to initialize RAG system: $e');
     }
+  }
 
-    // 코사인 유사도 계산 및 반환
-    return dotProduct / (sqrt(magnitude1) * sqrt(magnitude2));
+  Future<File> _getFile() async {
+    final directory = await getApplicationDocumentsDirectory();
+    return File('${directory.path}/$_fileName');
+  }
+
+  Future<void> _loadVectorStore(File file) async {
+    final content = await file.readAsString();
+    final List<dynamic> jsonList = json.decode(content);
+    vectorStore.clear();
+    for (var item in jsonList) {
+      vectorStore.add((
+        id: item['id'],
+        vector: (item['vector'] as List).cast<double>(),
+        metadata: Map<String, dynamic>.from(item['metadata']),
+        content: item['content'],
+      ));
+    }
+  }
+
+  Future<void> _createVectorStore(List<Shortcut> shortcuts) async {
+    for (var shortcut in shortcuts) {
+      final content = '${shortcut.keys}: ${shortcut.description}';
+      final vector = await embeddings.embedQuery(content);
+      vectorStore.add((
+        id: _uuid.v4(),
+        vector: vector,
+        metadata: {'category': shortcut.category},
+        content: content,
+      ));
+    }
+  }
+
+  Future<void> _saveVectorStore(File file) async {
+    final jsonList = vectorStore
+        .map((item) => {
+              'id': item.id,
+              'vector': item.vector,
+              'metadata': item.metadata,
+              'content': item.content,
+            })
+        .toList();
+    await file.writeAsString(json.encode(jsonList));
+  }
+
+  Future<List<Shortcut>> search(String query) async {
+    try {
+      final queryVector = await embeddings.embedQuery(query);
+      final results = _cosineSimilaritySearch(queryVector, 5);
+
+      return results.map((result) {
+        final parts = result.content.split(':');
+        return Shortcut(
+          parts[0].trim(),
+          parts.sublist(1).join(':').trim(),
+          result.metadata['category'] as String,
+        );
+      }).toList();
+    } catch (e) {
+      print('Error during search: $e');
+      rethrow;
+    }
+  }
+
+  List<
+      ({
+        String id,
+        List<double> vector,
+        Map<String, dynamic> metadata,
+        String content
+      })> _cosineSimilaritySearch(List<double> queryVector, int k) {
+    final scores = vectorStore.map((item) {
+      final similarity = _cosineSimilarity(queryVector, item.vector);
+      return (item: item, score: similarity);
+    }).toList();
+
+    scores.sort((a, b) => b.score.compareTo(a.score));
+    return scores.take(k).map((e) => e.item).toList();
+  }
+
+  double _cosineSimilarity(List<double> a, List<double> b) {
+    double dotProduct = 0.0;
+    double normA = 0.0;
+    double normB = 0.0;
+    for (int i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    return dotProduct / (sqrt(normA) * sqrt(normB));
+  }
+
+  // just for debugging
+  Future<String> getVectorStoreFilePath() async {
+    final directory = await getApplicationDocumentsDirectory();
+    return '${directory.path}/$_fileName';
+  }
+
+  Future<void> openVectorStoreFileLocation() async {
+    final path = await getVectorStoreFilePath();
+    final file = File(path);
+    if (await file.exists()) {
+      // macOS에서 Finder로 파일 위치 열기
+      await Process.run('open', ['-R', path]);
+    } else {
+      print('Vector store file does not exist yet.');
+    }
   }
 }
 
-// 단축키 정보를 저장하는 클래스
-class Shortcut {
-  final String keys; // 단축키 조합 (예: "⌘ + C")
-  final String description; // 단축키 설명
-  final double similarity; // 검색 쿼리와의 유사도 (검색 결과 정렬에 사용)
+double sqrt(double x) => x <= 0 ? 0 : _sqrtNewtonRaphson(x, x, 0);
 
-  Shortcut(this.keys, this.description, [this.similarity = 0.0]);
-
-  @override
-  String toString() {
-    return 'Shortcut(keys: $keys, description: $description, similarity: ${similarity.toStringAsFixed(4)})';
-  }
+double _sqrtNewtonRaphson(double x, double curr, int depth) {
+  if (depth > 10) return curr;
+  double next = (curr + x / curr) / 2;
+  if ((next - curr).abs() < 1e-9) return next;
+  return _sqrtNewtonRaphson(x, next, depth + 1);
 }

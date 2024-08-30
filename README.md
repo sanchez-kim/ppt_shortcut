@@ -1,4 +1,4 @@
-# PPT Shortcuts
+# PPT Shortcut
 
 맥용 파워포인트 단축키 찾기가 너무 귀찮아서 만들게된 프로젝트로, 맥으로 ppt 작업하는 사람들에게 도움이 되었으면 합니다.
 
@@ -10,20 +10,22 @@
 
 ## 기술 스택
 
-- Flutter
-- Dart
+- Flutter & Dart
 - LangChain
+- Ollama
+- Chroma
 
 ## 설치 방법
 
+0. Ollama, Chroma를 설치하고 서빙합니다.
 1. Flutter SDK를 설치합니다. (https://flutter.dev/docs/get-started/install)
 2. 이 저장소를 클론합니다:
    ```
-   git clone https://github.com/yourusername/mac-powerpoint-shortcuts-finder.git
+   git clone https://github.com/sanchez-kim/ppt_shortcut.git
    ```
 3. 프로젝트 디렉토리로 이동합니다:
    ```
-   cd mac-powerpoint-shortcuts-finder
+   cd ppt_shortcut
    ```
 4. 종속성을 설치합니다:
    ```
@@ -63,4 +65,4 @@
 
 ## Contact
 
-프로젝트 관리자 - [@Sanchez56480](https://twitter.com/Sanchez56480)
+프로젝트 관리자 - [@Sanchez56480](https://twitter.com/sanchezkimkr)

@@ -8,6 +8,28 @@ void main() {
   runApp(const MyApp());
 }
 
+final darkTheme = ThemeData.dark().copyWith(
+  primaryColor: Colors.blueGrey[800],
+  scaffoldBackgroundColor: Colors.grey[900],
+  appBarTheme: AppBarTheme(
+    backgroundColor: Colors.blueGrey[900],
+    elevation: 0,
+  ),
+  inputDecorationTheme: InputDecorationTheme(
+    fillColor: Colors.grey[800],
+    filled: true,
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: BorderSide.none,
+    ),
+    hintStyle: TextStyle(color: Colors.grey[400]),
+  ),
+  textTheme: TextTheme(
+    bodyLarge: TextStyle(color: Colors.white),
+    bodyMedium: TextStyle(color: Colors.grey[300]),
+  ),
+);
+
 // 앱의 루트 위젯
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
@@ -16,9 +38,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: '맥 파워포인트 단축키',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
+      theme: darkTheme,
       home: const MyHomePage(title: '맥 파워포인트 단축키'),
     );
   }
@@ -26,8 +46,6 @@ class MyApp extends StatelessWidget {
 
 // 앱의 홈 페이지 위젯
 class MyHomePage extends StatefulWidget {
-  // StatefulWidget는 변경 가능한 상태를 가진 위젯
-  // 검색 결과와 같이 동적으로 변하는 데이터를 다룰때 사용
   const MyHomePage({Key? key, required this.title}) : super(key: key);
 
   final String title;
@@ -36,29 +54,35 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-// 홈 페이지의 상태를 관리하는 클래스
 class _MyHomePageState extends State<MyHomePage> {
-  // 텍스트 입력을 관리하는 컨트롤러
   final TextEditingController _controller = TextEditingController();
-
-  // RAG 시스템 인스턴스 생성 (sampleShortcuts은 미리 정의된 단축키 리스트)
-  final RAGSystem _ragSystem = RAGSystem(sampleShortcuts);
-
-  // 검색 결과를 저장하는 리스트
+  late Future<RAGSystem> _ragSystemFuture;
   List<Shortcut> _searchResults = [];
 
-  // 검색을 수행하는 메서드
-  void _performSearch(String query) {
-    setState(() {
-      // 쿼리가 비어있으면 빈 리스트를, 그렇지 않으면 검색 결과를 반환
-      _searchResults = query.isEmpty ? [] : _ragSystem.search(query);
+  @override
+  void initState() {
+    super.initState();
+    _ragSystemFuture = RAGSystem.create(sampleShortcuts);
+  }
 
-      // 콘솔에 검색 결과와 유사도 출력
-      developer.log('Search results for "$query":');
-      for (var shortcut in _searchResults) {
-        developer.log(shortcut.toString());
-      }
+  Future<void> _performSearch(String query) async {
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = [];
+      });
+      return;
+    }
+
+    final ragSystem = await _ragSystemFuture;
+    final results = await ragSystem.search(query);
+    setState(() {
+      _searchResults = results;
     });
+
+    developer.log('Search results for "$query":');
+    for (var shortcut in _searchResults) {
+      developer.log(shortcut.toString());
+    }
   }
 
   @override
@@ -67,61 +91,192 @@ class _MyHomePageState extends State<MyHomePage> {
       appBar: AppBar(
         title: Text(widget.title),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: <Widget>[
-            // 검색 입력 필드
-            TextField(
-              controller: _controller,
-              decoration: const InputDecoration(
-                labelText: '단축키 또는 동작 입력',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.search),
-              ),
-              // 텍스트가 변경될 때마다 검색 수행
-              onChanged: _performSearch,
-            ),
-            const SizedBox(height: 20),
-            // 검색 결과 표시 영역
-            Expanded(
-              child: _searchResults.isEmpty
-                  // 검색 결과가 없을 때 표시할 위젯
-                  ? Center(
-                      child: Text(
-                      _controller.text.isEmpty
-                          ? '검색어를 입력해주세요.'
-                          : '검색 결과가 없습니다.',
-                      style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-                    ))
-                  // 검색 결과가 있을 때 리스트뷰로 표시
-                  : ListView.builder(
-                      itemCount: _searchResults.length,
-                      itemBuilder: (context, index) {
-                        final shortcut = _searchResults[index];
-                        return ListTile(
-                          title: Text(shortcut.keys,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text(shortcut.description),
-                          onTap: () {
-                            // TODO: 단축키 실행 기능 구현
-                            print('Executing shortcut: ${shortcut.keys}');
-                          },
-                        );
-                      },
+      body: FutureBuilder<RAGSystem>(
+        future: _ragSystemFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          } else {
+            return Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: <Widget>[
+                  TextField(
+                    controller: _controller,
+                    style: TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: '단축키 또는 동작 입력',
+                      labelStyle: TextStyle(color: Colors.grey[400]),
+                      prefixIcon: Icon(Icons.search, color: Colors.grey[400]),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[800],
                     ),
-            ),
-          ],
-        ),
+                    onChanged: (query) => _performSearch(query),
+                  ),
+                  const SizedBox(height: 20),
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: _searchResults.isEmpty
+                              ? Center(
+                                  child: Text(
+                                  _controller.text.isEmpty
+                                      ? '검색어를 입력해주세요.'
+                                      : '검색 결과가 없습니다.',
+                                  style: TextStyle(
+                                      fontSize: 16, color: Colors.grey[400]),
+                                ))
+                              : Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 1,
+                                      child: ListView.builder(
+                                        itemCount: _searchResults.length,
+                                        itemBuilder: (context, index) {
+                                          final shortcut =
+                                              _searchResults[index];
+                                          return ListTile(
+                                            title: Text(shortcut.keys,
+                                                style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white)),
+                                            subtitle: Text(shortcut.category,
+                                                style: TextStyle(
+                                                    color: Colors.grey[400],
+                                                    fontSize: 12)),
+                                            onTap: () {
+                                              setState(() {
+                                                _selectedShortcut = shortcut;
+                                              });
+                                            },
+                                            selected:
+                                                _selectedShortcut == shortcut,
+                                            selectedTileColor:
+                                                Colors.blueGrey[700],
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                    VerticalDivider(
+                                        color: Colors.grey[700], width: 1),
+                                    Expanded(
+                                      flex: 1,
+                                      child: _selectedShortcut != null
+                                          ? Padding(
+                                              padding:
+                                                  const EdgeInsets.all(16.0),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(_selectedShortcut!.keys,
+                                                      style: TextStyle(
+                                                          fontSize: 18,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          color: Colors.white)),
+                                                  SizedBox(height: 8),
+                                                  Text(
+                                                      _selectedShortcut!
+                                                          .category,
+                                                      style: TextStyle(
+                                                          fontSize: 14,
+                                                          color: Colors
+                                                              .grey[400])),
+                                                  SizedBox(height: 16),
+                                                  Text(
+                                                      _selectedShortcut!
+                                                          .description,
+                                                      style: TextStyle(
+                                                          fontSize: 16,
+                                                          color: Colors
+                                                              .grey[300])),
+                                                ],
+                                              ),
+                                            )
+                                          : Center(
+                                              child: Text('단축키를 선택해주세요.',
+                                                  style: TextStyle(
+                                                      fontSize: 16,
+                                                      color: Colors.grey[400])),
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                        // Check the location of vector store file
+                        // const VerticalDivider(color: Colors.grey, width: 1),
+                        // Expanded(
+                        //   flex: 1,
+                        //   child:
+                        //       VectorStoreInfoWidget(ragSystem: snapshot.data!),
+                        // ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+        },
       ),
     );
   }
 
+  Shortcut? _selectedShortcut;
+
   @override
   void dispose() {
-    // 위젯이 제거될 때 컨트롤러 해제
     _controller.dispose();
     super.dispose();
+  }
+}
+
+class VectorStoreInfoWidget extends StatelessWidget {
+  final RAGSystem ragSystem;
+
+  const VectorStoreInfoWidget({Key? key, required this.ragSystem})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('벡터 저장소 정보', style: Theme.of(context).textTheme.titleLarge),
+        FutureBuilder<String>(
+          future: ragSystem.getVectorStoreFilePath(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.done) {
+              return Text(
+                '파일 경로: ${snapshot.data}',
+                style: TextStyle(fontSize: 12, color: Colors.grey[300]),
+                softWrap: true,
+              );
+            } else {
+              return CircularProgressIndicator();
+            }
+          },
+        ),
+        SizedBox(height: 10),
+        ElevatedButton(
+          onPressed: () => ragSystem.openVectorStoreFileLocation(),
+          child: Text('파일 위치 열기'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blueGrey[700],
+            foregroundColor: Colors.white,
+          ),
+        ),
+      ],
+    );
   }
 }

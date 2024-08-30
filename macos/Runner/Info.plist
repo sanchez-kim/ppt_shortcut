@@ -28,5 +28,11 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app needs access to the local network to connect to the Ollama server.</string>
+	<key>NSBonjourServices</key>
+	<array>
+	<string>_http._tcp</string>
+	</array>
 </dict>
 </plist>
